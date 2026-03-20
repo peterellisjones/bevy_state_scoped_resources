@@ -158,7 +158,7 @@ macro_rules! state_scoped_resources {
     };
 }
 
-use bevy::state::state::{StateTransition, StateTransitionSystems};
+use bevy::state::state::{StateTransition, StateTransitionEvent, StateTransitionSystems};
 
 /// Extension trait for registering [`StateScopedResources`] on an [`App`].
 pub trait StateScopedResourcesAppExt {
@@ -238,6 +238,87 @@ impl StateScopedResourcesAppExt for App {
         }
 
         self
+    }
+}
+
+/// Extension trait for scoping individual resources to a state lifetime.
+///
+/// For resources with a fixed lifecycle (must exist during a state), prefer
+/// [`state_scoped_resources!`] and [`StateScopedResourcesAppExt`].
+///
+/// This trait is useful for **optional resources** that may or may not exist.
+pub trait StateScopedResourceAppExt {
+    /// Remove this resource when exiting `state`. No-op if already absent.
+    fn remove_resource_on_exit<R: Resource, S: States + Clone>(
+        &mut self,
+        state: S,
+    ) -> &mut Self;
+
+    /// Assert this resource exists after entering `state`.
+    ///
+    /// Gated on `debug_assertions` or the `force_assertions` feature.
+    fn assert_resource_on_enter<R: Resource, S: States + Clone>(
+        &mut self,
+        state: S,
+    ) -> &mut Self;
+
+    /// Convenience: [`remove_resource_on_exit`](Self::remove_resource_on_exit) +
+    /// [`assert_resource_on_enter`](Self::assert_resource_on_enter).
+    fn scope_resource_to_state<R: Resource, S: States + Clone>(
+        &mut self,
+        state: S,
+    ) -> &mut Self;
+}
+
+impl StateScopedResourceAppExt for App {
+    fn remove_resource_on_exit<R: Resource, S: States + Clone>(
+        &mut self,
+        state: S,
+    ) -> &mut Self {
+        self.add_systems(OnExit(state), |mut commands: Commands| {
+            commands.remove_resource::<R>();
+        });
+        self
+    }
+
+    fn assert_resource_on_enter<R: Resource, S: States + Clone>(
+        &mut self,
+        state: S,
+    ) -> &mut Self {
+        #[cfg(any(debug_assertions, feature = "force_assertions"))]
+        {
+            self.add_systems(
+                StateTransition,
+                (move |mut reader: MessageReader<StateTransitionEvent<S>>,
+                       resource: Option<Res<R>>| {
+                    for event in reader.read() {
+                        if event.entered == event.exited {
+                            continue;
+                        }
+                        if event.entered.as_ref() == Some(&state) {
+                            let resource_name = core::any::type_name::<R>();
+                            let state_name = core::any::type_name::<S>();
+                            assert!(
+                                resource.is_some(),
+                                "State-scoped resource {resource_name} must exist \
+                                 after entering {state_name}::{state:?}",
+                            );
+                        }
+                    }
+                })
+                .after(StateTransitionSystems::EnterSchedules)
+                .ambiguous_with_all(),
+            );
+        }
+        self
+    }
+
+    fn scope_resource_to_state<R: Resource, S: States + Clone>(
+        &mut self,
+        state: S,
+    ) -> &mut Self {
+        self.remove_resource_on_exit::<R, S>(state.clone())
+            .assert_resource_on_enter::<R, S>(state)
     }
 }
 
@@ -460,5 +541,83 @@ mod tests {
 
         assert_eq!(app.world().resource::<Pool<0>>(), &Pool(0));
         assert_eq!(app.world().resource::<Pool<1>>(), &Pool(1));
+    }
+
+    // --- Single-resource helper tests ---
+
+    #[derive(Resource, Default, Debug, PartialEq)]
+    struct CursorState(u32);
+
+    #[test]
+    fn remove_resource_on_exit_removes_when_leaving() {
+        let mut app = test_app();
+        app.remove_resource_on_exit::<CursorState, GameState>(GameState::Playing);
+
+        app.update();
+        transition_to(&mut app, GameState::Playing);
+
+        app.world_mut().insert_resource(CursorState(42));
+        assert!(app.world().contains_resource::<CursorState>());
+
+        transition_to(&mut app, GameState::Menu);
+
+        assert!(
+            !app.world().contains_resource::<CursorState>(),
+            "CursorState should be removed on exit"
+        );
+    }
+
+    #[test]
+    fn remove_resource_on_exit_noop_when_absent() {
+        let mut app = test_app();
+        app.remove_resource_on_exit::<CursorState, GameState>(GameState::Playing);
+
+        app.update();
+        transition_to(&mut app, GameState::Playing);
+        // Don't insert CursorState.
+        transition_to(&mut app, GameState::Menu);
+        // Should not panic.
+    }
+
+    #[test]
+    #[should_panic(expected = "State-scoped resource")]
+    fn assert_resource_on_enter_panics_when_missing() {
+        let mut app = test_app();
+        app.assert_resource_on_enter::<CursorState, GameState>(GameState::Playing);
+
+        app.update();
+        transition_to(&mut app, GameState::Playing);
+    }
+
+    #[test]
+    fn assert_resource_on_enter_ok_when_present() {
+        let mut app = test_app();
+        app.assert_resource_on_enter::<CursorState, GameState>(GameState::Playing);
+        app.add_systems(OnEnter(GameState::Playing), |mut commands: Commands| {
+            commands.init_resource::<CursorState>();
+        });
+
+        app.update();
+        transition_to(&mut app, GameState::Playing);
+    }
+
+    #[test]
+    fn scope_resource_full_lifecycle() {
+        let mut app = test_app();
+        app.scope_resource_to_state::<CursorState, GameState>(GameState::Playing);
+        app.add_systems(OnEnter(GameState::Playing), |mut commands: Commands| {
+            commands.init_resource::<CursorState>();
+        });
+
+        app.update();
+
+        transition_to(&mut app, GameState::Playing);
+        assert!(app.world().contains_resource::<CursorState>());
+
+        transition_to(&mut app, GameState::Menu);
+        assert!(!app.world().contains_resource::<CursorState>());
+
+        transition_to(&mut app, GameState::Playing);
+        assert!(app.world().contains_resource::<CursorState>());
     }
 }
