@@ -34,3 +34,27 @@
 //!         .run();
 //! }
 //! ```
+
+use bevy::prelude::*;
+use core::any::TypeId;
+
+/// Contract for a set of resources scoped to a particular state.
+///
+/// Implemented by the [`state_scoped_resources!`] macro.
+/// Do not implement manually.
+pub trait StateScopedResources: 'static + Send + Sync {
+    /// Construct (via [`FromWorld`]) and insert all `create` resources.
+    fn insert_all(world: &mut World);
+
+    /// Remove all `create` and `require` resources.
+    fn remove_all(world: &mut World);
+
+    /// Panic if any resource in the set is missing.
+    fn assert_all_exist(world: &World);
+
+    /// Panic if any resource in the set still exists.
+    fn assert_none_exist(world: &World);
+
+    /// [`TypeId`]s of every resource in the set.
+    fn type_ids() -> Vec<TypeId>;
+}
