@@ -1,12 +1,12 @@
 //! State-scoped resource lifecycle management for Bevy.
 //!
-//! Bevy's built-in [`StateScoped`](bevy::prelude::StateScoped) removes
+//! Bevy's built-in `StateScoped` removes
 //! *entities* when exiting a state, but there is no equivalent for
 //! *resources*. This crate fills that gap.
 //!
 //! # Quick start
 //!
-//! ```rust,ignore
+//! ```rust
 //! use bevy::prelude::*;
 //! use bevy_state_scoped_resources::*;
 //!
@@ -16,14 +16,14 @@
 //! #[derive(Resource, Default)]
 //! struct PlayerScore(u32);
 //!
-//! #[derive(Resource)]
-//! struct LevelConfig { /* loaded externally */ }
-//!
 //! state_scoped_resources!(GameResources for GameState {
 //!     create: [PlayerScore],
-//!     require: [LevelConfig],
 //! });
+//! ```
 //!
+//! Full example with app setup:
+//!
+//! ```rust,ignore
 //! fn main() {
 //!     App::new()
 //!         .add_plugins(DefaultPlugins)
@@ -158,6 +158,7 @@ macro_rules! state_scoped_resources {
     };
 }
 
+#[cfg(any(debug_assertions, feature = "force_assertions"))]
 use bevy::state::state::{StateTransition, StateTransitionEvent, StateTransitionSystems};
 
 /// Extension trait for registering [`StateScopedResources`] on an [`App`].
@@ -285,6 +286,8 @@ impl StateScopedResourceAppExt for App {
         &mut self,
         state: S,
     ) -> &mut Self {
+        #[cfg(not(any(debug_assertions, feature = "force_assertions")))]
+        let _ = state;
         #[cfg(any(debug_assertions, feature = "force_assertions"))]
         {
             self.add_systems(
@@ -422,6 +425,7 @@ mod tests {
         );
     }
 
+    #[cfg(any(debug_assertions, feature = "force_assertions"))]
     #[test]
     #[should_panic(expected = "contract violated")]
     fn panics_when_require_resource_missing() {
@@ -435,6 +439,7 @@ mod tests {
         transition_to(&mut app, GameState::Playing);
     }
 
+    #[cfg(any(debug_assertions, feature = "force_assertions"))]
     #[test]
     #[should_panic(expected = "contract violated")]
     fn panics_when_resource_leaks_after_exit() {
@@ -579,6 +584,7 @@ mod tests {
         // Should not panic.
     }
 
+    #[cfg(any(debug_assertions, feature = "force_assertions"))]
     #[test]
     #[should_panic(expected = "State-scoped resource")]
     fn assert_resource_on_enter_panics_when_missing() {
