@@ -6,7 +6,7 @@ rust-version = "1.85"
 license = "MIT OR Apache-2.0"
 description = "State-scoped resource lifecycle management for Bevy — the resource equivalent of StateScoped"
 readme = "README.md"
-repository = "https://github.com/pj/bevy_state_scoped_resources"
+repository = "https://github.com/peterellisjones/bevy_state_scoped_resources"
 keywords = ["bevy", "gamedev", "ecs", "state"]
 categories = ["game-development"]
 
