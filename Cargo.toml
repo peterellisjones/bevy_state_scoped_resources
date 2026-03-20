@@ -1,0 +1,16 @@
+[package]
+name = "bevy_state_scoped_resources"
+version = "0.1.0"
+edition = "2024"
+license = "MIT OR Apache-2.0"
+description = "State-scoped resource lifecycle management for Bevy — the resource equivalent of StateScoped"
+repository = "https://github.com/pj/bevy_state_scoped_resources"
+keywords = ["bevy", "gamedev", "ecs", "state"]
+categories = ["game-development"]
+
+[dependencies]
+bevy = { version = "0.18", default-features = false, features = ["bevy_state"] }
+
+[features]
+default = []
+force_assertions = []
