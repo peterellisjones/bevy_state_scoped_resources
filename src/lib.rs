@@ -158,6 +158,89 @@ macro_rules! state_scoped_resources {
     };
 }
 
+use bevy::state::state::{StateTransition, StateTransitionSystems};
+
+/// Extension trait for registering [`StateScopedResources`] on an [`App`].
+pub trait StateScopedResourcesAppExt {
+    /// Register a [`StateScopedResources`] set for a given state value.
+    ///
+    /// Inserts `create` resources on enter, removes all resources on exit,
+    /// and (in debug builds or with `force_assertions`) continuously asserts
+    /// that all resources exist while the state is active.
+    fn register_state_scoped_resources<M: StateScopedResources, S: States + Clone>(
+        &mut self,
+        state: S,
+    ) -> &mut Self;
+}
+
+impl StateScopedResourcesAppExt for App {
+    fn register_state_scoped_resources<M: StateScopedResources, S: States + Clone>(
+        &mut self,
+        state: S,
+    ) -> &mut Self {
+        // OnEnter: construct and insert create resources.
+        self.add_systems(OnEnter(state.clone()), M::insert_all);
+
+        // OnExit: remove all resources in the set.
+        self.add_systems(OnExit(state.clone()), M::remove_all);
+
+        // Assertion systems -- gated on debug_assertions or force_assertions.
+        #[cfg(any(debug_assertions, feature = "force_assertions"))]
+        {
+            // Post-enter: assert all resources exist.
+            // ambiguous_with_all: read-only assertions, no data dependencies.
+            let state_for_enter = state.clone();
+            self.add_systems(
+                StateTransition,
+                (move |world: &mut World, mut was_active: Local<bool>| {
+                    let is_active = world
+                        .get_resource::<State<S>>()
+                        .is_some_and(|s| *s.get() == state_for_enter);
+                    if is_active && !*was_active {
+                        M::assert_all_exist(world);
+                    }
+                    *was_active = is_active;
+                })
+                .after(StateTransitionSystems::EnterSchedules)
+                .ambiguous_with_all(),
+            );
+
+            // Continuous: assert all resources still exist every frame.
+            // ambiguous_with_all: read-only assertions, no data dependencies.
+            let state_for_continuous = state.clone();
+            self.add_systems(
+                Update,
+                (move |world: &World| {
+                    M::assert_all_exist(world);
+                })
+                .run_if(in_state(state_for_continuous))
+                .ambiguous_with_all(),
+            );
+
+            // Post-exit: assert no resources leaked.
+            // ambiguous_with_all: read-only assertions, no data dependencies.
+            let state_for_exit = state;
+            self.add_systems(
+                StateTransition,
+                (move |world: &mut World, mut was_active: Local<bool>| {
+                    let is_active = world
+                        .get_resource::<State<S>>()
+                        .is_some_and(|s| *s.get() == state_for_exit);
+                    if !is_active && *was_active {
+                        M::assert_none_exist(world);
+                    }
+                    *was_active = is_active;
+                })
+                .after(StateTransitionSystems::ExitSchedules)
+                .before(StateTransitionSystems::EnterSchedules)
+                .ambiguous_with_all(),
+            );
+        }
+
+        self
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use bevy::prelude::*;
@@ -228,5 +311,154 @@ mod tests {
             &LevelConfig(1),
             "LevelConfig should be inserted by OnEnter system"
         );
+    }
+
+    #[test]
+    fn all_resources_removed_on_exit() {
+        let mut app = test_app();
+        app.register_state_scoped_resources::<TestResources, GameState>(
+            GameState::Playing,
+        );
+        app.add_systems(OnEnter(GameState::Playing), |mut commands: Commands| {
+            commands.insert_resource(LevelConfig(1));
+        });
+
+        app.update();
+        transition_to(&mut app, GameState::Playing);
+
+        assert!(app.world().contains_resource::<PlayerScore>());
+        assert!(app.world().contains_resource::<LevelConfig>());
+
+        transition_to(&mut app, GameState::Menu);
+
+        assert!(
+            !app.world().contains_resource::<PlayerScore>(),
+            "PlayerScore should be removed after exiting Playing"
+        );
+        assert!(
+            !app.world().contains_resource::<LevelConfig>(),
+            "LevelConfig should be removed after exiting Playing"
+        );
+    }
+
+    #[test]
+    #[should_panic(expected = "contract violated")]
+    fn panics_when_require_resource_missing() {
+        let mut app = test_app();
+        app.register_state_scoped_resources::<TestResources, GameState>(
+            GameState::Playing,
+        );
+        // Do NOT add OnEnter for LevelConfig.
+
+        app.update();
+        transition_to(&mut app, GameState::Playing);
+    }
+
+    #[test]
+    #[should_panic(expected = "contract violated")]
+    fn panics_when_resource_leaks_after_exit() {
+        let mut app = test_app();
+        app.register_state_scoped_resources::<TestResources, GameState>(
+            GameState::Playing,
+        );
+        app.add_systems(OnEnter(GameState::Playing), |mut commands: Commands| {
+            commands.insert_resource(LevelConfig(1));
+        });
+        // Re-insert PlayerScore on exit to simulate a leak.
+        app.add_systems(OnExit(GameState::Playing), |mut commands: Commands| {
+            commands.insert_resource(PlayerScore(999));
+        });
+
+        app.update();
+        transition_to(&mut app, GameState::Playing);
+        transition_to(&mut app, GameState::Menu);
+    }
+
+    #[test]
+    fn reentry_creates_fresh_resources() {
+        let mut app = test_app();
+        app.register_state_scoped_resources::<TestResources, GameState>(
+            GameState::Playing,
+        );
+        app.add_systems(OnEnter(GameState::Playing), |mut commands: Commands| {
+            commands.insert_resource(LevelConfig(1));
+        });
+
+        app.update();
+
+        // First entry.
+        transition_to(&mut app, GameState::Playing);
+        assert_eq!(app.world().resource::<PlayerScore>(), &PlayerScore(0));
+
+        // Exit.
+        transition_to(&mut app, GameState::Menu);
+        assert!(!app.world().contains_resource::<PlayerScore>());
+
+        // Re-enter.
+        transition_to(&mut app, GameState::Playing);
+        assert_eq!(
+            app.world().resource::<PlayerScore>(),
+            &PlayerScore(0),
+            "PlayerScore should be freshly constructed on re-entry"
+        );
+    }
+
+    #[test]
+    fn type_ids_returns_all_types() {
+        let ids = TestResources::type_ids();
+        assert_eq!(ids.len(), 2);
+        assert!(ids.contains(&TypeId::of::<PlayerScore>()));
+        assert!(ids.contains(&TypeId::of::<LevelConfig>()));
+    }
+
+    // Verify create-only and require-only variants compile.
+    state_scoped_resources!(CreateOnlyResources for GameState {
+        create: [PlayerScore],
+    });
+
+    state_scoped_resources!(RequireOnlyResources for GameState {
+        require: [LevelConfig],
+    });
+
+    #[test]
+    fn create_only_type_ids() {
+        let ids = CreateOnlyResources::type_ids();
+        assert_eq!(ids.len(), 1);
+        assert!(ids.contains(&TypeId::of::<PlayerScore>()));
+    }
+
+    #[test]
+    fn require_only_type_ids() {
+        let ids = RequireOnlyResources::type_ids();
+        assert_eq!(ids.len(), 1);
+        assert!(ids.contains(&TypeId::of::<LevelConfig>()));
+    }
+
+    // Verify const-generic resources work.
+    #[derive(Resource, Debug, PartialEq)]
+    struct Pool<const N: u32>(u32);
+
+    impl<const N: u32> FromWorld for Pool<N> {
+        fn from_world(_world: &mut World) -> Self {
+            Self(N)
+        }
+    }
+
+    state_scoped_resources!(ConstGenericResources for GameState {
+        create: [Pool<0>, Pool<1>],
+    });
+
+    #[test]
+    fn const_generic_resources_work() {
+        let mut app = test_app();
+        app.register_state_scoped_resources::<ConstGenericResources, GameState>(
+            GameState::Playing,
+        );
+
+        app.update();
+        transition_to(&mut app, GameState::Playing);
+
+        assert_eq!(app.world().resource::<Pool<0>>(), &Pool(0));
+        assert_eq!(app.world().resource::<Pool<1>>(), &Pool(1));
     }
 }
