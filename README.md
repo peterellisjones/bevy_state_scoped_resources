@@ -90,7 +90,12 @@ use bevy_state_scoped_resources::StateScopedResourceAppExt;
 
 | bevy_state_scoped_resources | Bevy  |
 |-----------------------------|-------|
+| 0.2                        | 0.19  |
 | 0.1                        | 0.18  |
+
+## AI assistance
+
+This crate was developed with the help of AI coding tools.
 
 ## License
 

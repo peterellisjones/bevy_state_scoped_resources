@@ -1,6 +1,6 @@
 [package]
 name = "bevy_state_scoped_resources"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.85"
 license = "MIT OR Apache-2.0"
@@ -11,7 +11,7 @@ keywords = ["bevy", "gamedev", "ecs", "state"]
 categories = ["game-development"]
 
 [dependencies]
-bevy = { version = "0.18", default-features = false, features = ["bevy_state"] }
+bevy = { version = "0.19", default-features = false, features = ["bevy_state"] }
 
 [features]
 default = []
