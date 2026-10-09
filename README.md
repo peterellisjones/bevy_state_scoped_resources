@@ -60,7 +60,7 @@ To enable these assertion systems in release builds:
 
 ```toml
 [dependencies]
-bevy_state_scoped_resources = { version = "0.1", features = ["force_assertions"] }
+bevy_state_scoped_resources = { version = "0.3", features = ["force_assertions"] }
 ```
 
 ## Single-Resource Helpers
@@ -90,6 +90,7 @@ use bevy_state_scoped_resources::StateScopedResourceAppExt;
 
 | bevy_state_scoped_resources | Bevy  |
 |-----------------------------|-------|
+| 0.3                        | 0.20  |
 | 0.2                        | 0.19  |
 | 0.1                        | 0.18  |
 

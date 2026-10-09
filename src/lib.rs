@@ -327,7 +327,6 @@ impl StateScopedResourceAppExt for App {
 
 #[cfg(test)]
 mod tests {
-    use bevy::prelude::*;
     use bevy::state::app::StatesPlugin;
 
     use super::*;
