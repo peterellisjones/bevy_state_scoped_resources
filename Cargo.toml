@@ -1,8 +1,8 @@
 [package]
 name = "bevy_state_scoped_resources"
-version = "0.2.0"
+version = "0.3.0"
 edition = "2024"
-rust-version = "1.85"
+rust-version = "1.97.1"
 license = "MIT OR Apache-2.0"
 description = "State-scoped resource lifecycle management for Bevy — the resource equivalent of StateScoped"
 readme = "README.md"
@@ -11,7 +11,7 @@ keywords = ["bevy", "gamedev", "ecs", "state"]
 categories = ["game-development"]
 
 [dependencies]
-bevy = { version = "0.19", default-features = false, features = ["bevy_state"] }
+bevy = { version = "0.20", default-features = false, features = ["bevy_state"] }
 
 [features]
 default = []
